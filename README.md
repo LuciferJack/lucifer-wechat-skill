@@ -26,17 +26,57 @@ The install script:
 
 ### wechat-cli initialization (first time only)
 
-wechat-cli reads WeChat's local SQLite database. First-time setup requires:
+wechat-cli reads WeChat's local SQLite database. The database is encrypted, `init` extracts the decryption key from WeChat's process memory. This requires several macOS security restrictions to be relaxed.
 
-1. **Disable SIP** (Recovery Mode > `csrutil disable`)
-2. **Grant Full Disk Access** to Terminal (System Settings > Privacy & Security > Full Disk Access)
-3. Run initialization with admin privileges:
+#### Step 1: Disable SIP (System Integrity Protection)
+
+SIP blocks `task_for_pid`, which is needed to read WeChat's process memory for the database key.
+
+1. Shut down your Mac
+2. Boot into Recovery Mode:
+   - Apple Silicon: hold Power button until "Loading startup options" appears, select Options
+   - Intel: hold Cmd+R during boot
+3. Open Terminal from the menu bar (Utilities > Terminal)
+4. Run: `csrutil disable`
+5. Restart
+
+Verify: `csrutil status` should show "disabled".
+
+> You can re-enable SIP after init succeeds (`csrutil enable` in Recovery Mode). wechat-cli only needs the key once — subsequent queries use the saved key file.
+
+#### Step 2: Grant Full Disk Access to Terminal
+
+WeChat's database is in `~/Library/Containers/com.tencent.xinWeChat/`, which is sandboxed by macOS. Terminal needs Full Disk Access to read it.
+
+1. System Settings > Privacy & Security > Full Disk Access
+2. Click "+" and add your terminal app (Terminal.app, iTerm2, or whichever you use)
+3. Restart the terminal
+
+If you use Claude Code's desktop app, also grant Full Disk Access to it.
+
+#### Step 3: Run init (WeChat must be running and logged in)
 
 ```bash
 sudo ~/.claude/skills/lucifer-wechat-skill/bin/wechat-cli init
 ```
 
-If you hit `task_for_pid failed`, re-sign WeChat and retry.
+This will:
+- Find the running WeChat process
+- Extract database decryption keys from its memory
+- Save keys to `~/.wechat-cli/all_keys.json`
+- Auto-detect and save the database path to `~/.wechat-cli/config.json`
+
+Verify: `~/.claude/skills/lucifer-wechat-skill/bin/wechat-cli sessions --limit 5` should list your recent chats.
+
+#### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| `task_for_pid failed` | SIP is still enabled, or WeChat needs re-signing: `codesign --remove-signature /Applications/WeChat.app && codesign --sign - /Applications/WeChat.app`, then relaunch WeChat and retry init |
+| `permission denied` on db files | Full Disk Access not granted; check Step 2 |
+| Wrong account's data | Multiple WeChat accounts have separate `wxid_*` directories. Edit `~/.wechat-cli/config.json` and set `db_dir` to the correct path |
+| `~/.wechat-cli` permission errors | `sudo chown -R $(whoami):staff ~/.wechat-cli/` |
+| WeChat updated, queries return empty | Re-run `sudo wechat-cli init --force` to re-extract keys (database encryption key may change after updates) |
 
 ## Usage
 
