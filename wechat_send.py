@@ -124,8 +124,15 @@ def ocr_region(image_path, region=None):
 
 def click_at(x, y):
     p = Quartz.CGPoint(x, y)
+    # Move mouse first to ensure correct position
+    m = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, p, 0)
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap, m)
+    time.sleep(0.1)
     d = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseDown, p, 0)
     u = Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventLeftMouseUp, p, 0)
+    # Explicitly set click count to 1 to prevent double-click interpretation
+    Quartz.CGEventSetIntegerValueField(d, Quartz.kCGMouseEventClickState, 1)
+    Quartz.CGEventSetIntegerValueField(u, Quartz.kCGMouseEventClickState, 1)
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, d)
     time.sleep(0.05)
     Quartz.CGEventPost(Quartz.kCGHIDEventTap, u)
@@ -298,7 +305,7 @@ def locate_in_popup(target, win):
         if not (wx <= sx < sidebar_right and sy > wy + 40 and sy < wy + wh):
             continue
         stripped = text.strip()
-        if stripped in ("联系人", "群聊", "功能", "搜索网络结果", "聊天记录", "搜一搜"):
+        if stripped in ("联系人", "群聊", "功能", "搜索网络结果", "聊天记录", "搜一搜", "最常使用"):
             section_headers[stripped] = sy
             continue
         # Skip search suggestions (Q-prefixed)
@@ -319,7 +326,7 @@ def locate_in_popup(target, win):
                 section, best_y = name, hy
         return section
 
-    # Pick best: 联系人/群聊 exact > 联系人/群聊 fuzzy > 功能 exact > 功能 fuzzy
+    # Pick best: 联系人/群聊 > 最常使用 > 功能 > skip others
     for exact_only in [True, False]:
         # Pass 1: 联系人/群聊
         for _, sx, sy, sw, sh, is_exact in candidates:
@@ -328,12 +335,19 @@ def locate_in_popup(target, win):
             section = get_section(sy)
             if section in ("联系人", "群聊"):
                 return sx + sw / 2, sy + sh / 2
-        # Pass 2: 功能 or no section (but not 搜一搜/搜索网络结果)
+        # Pass 2: 最常使用 (exact match only)
+        for _, sx, sy, sw, sh, is_exact in candidates:
+            if not is_exact:
+                continue
+            section = get_section(sy)
+            if section == "最常使用":
+                return sx + sw / 2, sy + sh / 2
+        # Pass 3: 功能 or no section (skip 搜一搜/搜索网络结果/聊天记录)
         for _, sx, sy, sw, sh, is_exact in candidates:
             if exact_only and not is_exact:
                 continue
             section = get_section(sy)
-            if section in ("搜一搜", "搜索网络结果"):
+            if section in ("搜一搜", "搜索网络结果", "聊天记录", "最常使用"):
                 continue
             return sx + sw / 2, sy + sh / 2
 
